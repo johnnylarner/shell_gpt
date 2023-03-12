@@ -3,7 +3,7 @@ import json
 from hashlib import md5
 from pathlib import Path
 from tempfile import gettempdir
-from typing import List, Dict, Callable
+from typing import Any, List, Dict, Callable
 
 
 class Cache:
@@ -28,12 +28,13 @@ class Cache:
         :param func: The function to cache.
         :return: Wrapped function with caching.
         """
+
         def wrapper(*args, **kwargs):
             if not kwargs.pop("caching", True):
                 return func(*args, **kwargs)
             cache_dir = self.CACHE_DIR
             # Exclude self (ChatGPT) instance from hashing.
-            cache_key = md5(json.dumps((args[1:], kwargs)).encode('utf-8')).hexdigest()
+            cache_key = md5(json.dumps((args[1:], kwargs)).encode("utf-8")).hexdigest()
             cache_file = cache_dir / cache_key
             if cache_file.exists():
                 return json.loads(cache_file.read_text())
@@ -42,6 +43,7 @@ class Cache:
             cache_file.write_text(json.dumps(result))
             self.__delete_oldest_files(self.length)
             return result
+
         return wrapper
 
     @classmethod
@@ -52,7 +54,7 @@ class Cache:
         :param max_files: Integer, the maximum number of files to keep in the CACHE_DIR folder.
         """
         # Get all files in the folder.
-        files = cls.CACHE_DIR.glob('*')
+        files = cls.CACHE_DIR.glob("*")
         # Sort files by last modification time in ascending order.
         files = sorted(files, key=lambda f: f.stat().st_mtime)
         # Delete the oldest files if the number of files exceeds the limit.
@@ -88,6 +90,7 @@ class ChatCache:
         :param func: The chat function to cache.
         :return: Wrapped function with chat caching.
         """
+
         def wrapper(*args, **kwargs):
             chat_id = kwargs.pop("chat_id", None)
             file_path = self.CACHE_DIR / chat_id if chat_id else self.CACHE_FILE_MAIN
@@ -98,6 +101,7 @@ class ChatCache:
             kwargs["messages"].append({"role": "assistant", "content": response_text})
             self.write(kwargs["messages"], self.length, file_path)
             return response_text
+
         return wrapper
 
     @classmethod
@@ -127,7 +131,7 @@ class ChatCache:
     @classmethod
     def get_chats(cls):
         # Get all files in the folder.
-        files = cls.CACHE_DIR.glob('*')
+        files = cls.CACHE_DIR.glob("*")
         # Sort files by last modification time in ascending order.
         return sorted(files, key=lambda f: f.stat().st_mtime)
 
@@ -142,13 +146,34 @@ class ChatGPT:
     chat_cache = ChatCache(length=50)
     cache = Cache(length=200)
 
-    def __init__(self, api_key: str):
+    def __init__(
+        self,
+        max_chat_messages: str,
+        max_cache_length: str,
+        api_key: str,
+        api_endpoint: str,
+    ):
         """
         Initialize ChatGPT.
 
+        :param max_chat_messages: Max number of chat messages.
+        :param max_cache_length: Max length of request cache.
         :param api_key: OpenAI API key.
+        :param api_endpoint: ChatGPT endpoint.
         """
+        self.chat_cache = ChatCache(length=int(max_chat_messages))
+        self.cache = Cache(length=int(max_cache_length))
         self.api_key = api_key
+        self.api_endpoint = api_endpoint
+
+    @staticmethod
+    def from_config(config: Dict[str, Any]):
+        return ChatGPT(
+            config.get("MAX_CHAT_MESSAGES"),
+            config.get("MAX_CACHE_LENGTH"),
+            config.get("API_KEY"),
+            config.get("API_ENDPOINT"),
+        )
 
     @cache
     def __request(
@@ -168,7 +193,10 @@ class ChatGPT:
         :param top_probability: Float in 0.0 - 1.0 range.
         :return: Response body JSON.
         """
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+        }
         data = {
             "messages": messages,
             "model": model,
@@ -208,7 +236,7 @@ class ChatGPT:
         messages: List[Dict],
         model: str = "gpt-3.5-turbo",
         temperature: float = 1,
-        top_probability: float = 1
+        top_probability: float = 1,
     ) -> str:
         """
         Generate completion based on conversation. Note that this method
@@ -223,6 +251,6 @@ class ChatGPT:
         :return: String generated completion for last user message.
         """
         # It returns several leading/trailing whitespaces.
-        return self.__request(
-            messages, model, temperature, top_probability
-        )["choices"][0]["message"]["content"].strip()
+        return self.__request(messages, model, temperature, top_probability)["choices"][
+            0
+        ]["message"]["content"].strip()

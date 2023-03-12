@@ -13,11 +13,12 @@ API Key is stored locally for easy use in future runs.
 
 import os
 import platform
+from config import get_cache_and_api_config
 from time import sleep
 from pathlib import Path
 from getpass import getpass
 from tempfile import NamedTemporaryFile
-from typing import Callable
+from typing import Any, Callable, Dict
 
 import typer
 
@@ -28,8 +29,11 @@ from sgpt import ChatGPT
 
 DATA_FOLDER = os.path.expanduser("~/.config")
 KEY_FILE = Path(DATA_FOLDER) / "shell-gpt" / "api_key.txt"
+CACHE_AND_API_CONFIG = Path(DATA_FOLDER) / "shell-gpt" / ".sgptrc"
 CURRENT_SHELL = "PowerShell" if platform.system() == "Windows" else "Bash"
-CODE_PROMPT = "Provide code and only code as output without any additional text, prompt or note."
+CODE_PROMPT = (
+    "Provide code and only code as output without any additional text, prompt or note."
+)
 SHELL_PROMPT = f"Provide only {CURRENT_SHELL} command as output, without any additional text or prompt."
 
 
@@ -56,6 +60,7 @@ def loading_spinner(func: Callable) -> Callable:
     :param func: Function to wrap.
     :return: Wrapped function with loading.
     """
+
     def wrapper(*args, **kwargs):
         if not kwargs.pop("spinner"):
             return func(*args, **kwargs)
@@ -63,6 +68,7 @@ def loading_spinner(func: Callable) -> Callable:
         with Progress(SpinnerColumn(), text, transient=True) as progress:
             progress.add_task("request")
             return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -91,7 +97,7 @@ def get_edited_prompt() -> str:
 @loading_spinner
 def get_completion(
     prompt: str,
-    api_key: str,
+    config: Dict[str, Any],
     temperature: float,
     top_p: float,
     caching: bool,
@@ -101,19 +107,23 @@ def get_completion(
     Generates completions for a given prompt using the OpenAI API.
 
     :param prompt: Prompt to generate completion for.
-    :param api_key: OpenAI API key.
+    :param config: ChatGPT caching and API configuration.
     :param temperature: Controls randomness of GPT-3.5 completions.
     :param top_p: Controls most probable tokens for completions.
     :param caching: Enable/Disable caching.
     :param chat: Enable/Disable conversation (chat mode).
     :return: GPT-3.5 generated completion.
     """
-    chat_gpt = ChatGPT(api_key)
+    chat_gpt = ChatGPT.from_config(config)
     model = "gpt-3.5-turbo"
     if not chat:
         return chat_gpt.get_completion(prompt, model, temperature, top_p, caching)
     return chat_gpt.get_chat_completion(
-        model=model, temperature=temperature, top_probability=top_p, message=prompt, chat_id=chat
+        model=model,
+        temperature=temperature,
+        top_probability=top_p,
+        message=prompt,
+        chat_id=chat,
     )
 
 
@@ -163,14 +173,26 @@ def echo_chat_ids() -> None:
 
 # Using lambda to pass a function to default value, which make it appear as "dynamic" in help.
 def main(
-    prompt: str = typer.Argument(None, show_default=False, help="The prompt to generate completions for."),
-    temperature: float = typer.Option(1.0, min=0.0, max=1.0, help="Randomness of generated output."),
-    top_probability: float = typer.Option(1.0, min=0.1, max=1.0, help="Limits highest probable tokens (words)."),
+    prompt: str = typer.Argument(
+        None, show_default=False, help="The prompt to generate completions for."
+    ),
+    temperature: float = typer.Option(
+        1.0, min=0.0, max=1.0, help="Randomness of generated output."
+    ),
+    top_probability: float = typer.Option(
+        1.0, min=0.1, max=1.0, help="Limits highest probable tokens (words)."
+    ),
     chat: str = typer.Option(None, help="Follow conversation with id (chat mode)."),
-    show_chat: str = typer.Option(None, help="Show all messages from provided chat id."),
+    show_chat: str = typer.Option(
+        None, help="Show all messages from provided chat id."
+    ),
     list_chat: bool = typer.Option(False, help="List all existing chat ids."),
-    shell: bool = typer.Option(False, "--shell", "-s", help="Provide shell command as output."),
-    execute: bool = typer.Option(False, "--execute", "-e", help="Will execute --shell command."),
+    shell: bool = typer.Option(
+        False, "--shell", "-s", help="Provide shell command as output."
+    ),
+    execute: bool = typer.Option(
+        False, "--execute", "-e", help="Will execute --shell command."
+    ),
     code: bool = typer.Option(False, help="Provide code as output."),
     editor: bool = typer.Option(False, help="Open $EDITOR to provide a prompt."),
     cache: bool = typer.Option(True, help="Cache completion results."),
@@ -197,9 +219,9 @@ def main(
     elif code:
         prompt = f"{CODE_PROMPT} {prompt}"
 
-    api_key = get_api_key()
+    config = get_cache_and_api_config(CACHE_AND_API_CONFIG, KEY_FILE)
     response_text = get_completion(
-        prompt, api_key, temperature, top_probability, cache, chat, spinner=spinner
+        prompt, config, temperature, top_probability, cache, chat, spinner=spinner
     )
 
     if code:
